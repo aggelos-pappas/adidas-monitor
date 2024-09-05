@@ -1,0 +1,343 @@
+import requests
+import json
+import time
+from threading import Thread
+from dhooks import Webhook, Embed
+import random
+import fake_useragent
+from datetime import datetime
+
+
+class AdidasMonitor():
+
+    def get_random_ua(self):
+        return random.choice([
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.131 Safari/537.36"
+        ])
+        
+    def __init__(self,
+                 region,
+                 pid,
+                 webhooks,
+                 refresh_time,):
+        self.region = region.lower()
+        self.pid = pid
+        self.refresh_time = refresh_time
+        self.count = 0
+        self.latest_status = ""
+        self.sizes = []
+        self.proxies = []
+        self.stock = {}
+        self.headers = {
+    "authority":
+    f"www.adidas.{self.region}",
+    "accept":
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "accept-language":
+    "en-US,en;q=0.9,el;q=0.8",
+    "cache-control":
+    "max-age=0",
+    "pragma":
+    "no-cache",
+    "sec-ch-ua":
+    '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    "sec-ch-ua-mobile":
+    "?1",
+    "sec-ch-ua-platform":
+    '"Android"',
+    "sec-fetch-dest":
+    "document",
+    "sec-fetch-mode":
+    "navigate",
+    "sec-fetch-site":
+    "none",
+    "sec-fetch-user":
+    "?1",
+    "sec-gpc":
+    "1",
+    "upgrade-insecure-requests":
+    "1",
+    "user-agent":
+    "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+        }
+
+        self.load_region_data()
+        self.load_proxies()
+
+    def log(self, msg):
+        print('[{}]: {}'.format(datetime.now(), msg))
+
+    def load_proxies(self):
+        self.proxies = open('proxies.txt').readlines()
+
+
+    def load_region_data(self):
+        if self.region == "uk":
+            self.domain = ".co.uk"
+            self.country = "GB"
+        elif self.region == "us":
+            self.domain = ".com"
+            self.country = "US"
+        elif self.region == "ca":
+            self.domain = ".ca"
+            self.country = "CA"
+        elif self.region == "au":
+            self.domain = ".com.au"
+            self.country = "AU"
+        elif self.region == "nl":
+            self.domain = ".nl"
+            self.country = "NL"
+        elif self.region == "de":
+            self.domain = ".de"
+            self.country = "DE"
+        elif self.region == "nz":
+            self.domain = ".co.nz"
+            self.country = "NZ"
+        elif self.region == "it":
+            self.domain = ".it"
+            self.country = "IT"
+        elif self.region == "cz":
+            self.domain = ".cz"
+            self.country = "CZ"
+        elif self.region == "dk":
+            self.domain = ".dk"
+            self.country = "DK"
+        elif self.region == "fr":
+            self.domain = ".fr"
+            self.country = "FR"
+        elif self.region == "es":
+            self.domain = ".es"
+            self.country = "ES"
+        elif self.region == "be":
+            self.domain = ".be"
+            self.country = "BE"
+        elif self.region == "ch":
+            self.domain = ".ch"
+            self.country = "CH"
+        elif self.region == "my":
+            self.domain = ".com.my"
+            self.country = "MY"
+        elif self.region == "br":
+            self.domain = ".br"
+            self.country = "BR"
+        elif self.region == "sg":
+            self.domain = ".com.sg"
+            self.country = "SG"
+        elif self.region == "ru":
+            self.domain = ".ru"
+            self.country = "RU"
+        else:
+            self.log("Region not recognized")
+            exit(1)
+
+    def sanitize_status(self, status):
+        return status.replace('_', ' ').title()
+
+    def format_proxy(self, proxy):
+        try:
+            ip = proxy.split(":")[0]
+            port = proxy.split(":")[1]
+            userpassproxy = '%s:%s' % (ip, port)
+            proxyuser = proxy.split(":")[2].rstrip()
+            proxypass = proxy.split(":")[3].rstrip()
+            proxies = {
+                'http':
+                'http://%s:%s@%s' % (proxyuser, proxypass, userpassproxy),
+                'https':
+                'http://%s:%s@%s' % (proxyuser, proxypass, userpassproxy)
+            }
+
+        except:
+            proxies = {
+                'http': 'http://%s' % proxy,
+                'https': 'http://%s' % proxy
+            }
+
+        return proxies
+
+    def get_stock_url(self):
+        return 'https://www.adidas{}/api/products/{}/availability'.format(
+            self.domain, self.pid)
+
+    def get_url(self):
+        return f"https://www.adidas{self.domain}/api/products/{self.pid}"
+
+    def get_wishlist_url(self):
+        return "https://www.adidas{}/on/demandware.store/Sites-adidas-{}-Site/-/Wishlist-GetColorVariation?cid={}".format(
+            self.domain, self.country, self.pid)
+
+    def start(self):
+        t = Thread(target=self.monitor_thread)
+        t.start()
+
+    def monitor_thread(self):
+        while True:
+            stock_url = self.get_stock_url()
+            data_url = self.get_url()
+            try:
+                if self.count == 0:
+                    data_raw = requests.get(data_url,
+                                            headers=self.headers,
+                                            timeout=22)
+                    data = data_raw.json()
+            except Exception as e:
+                self.log(f"[{self.pid}] | Error getting product info: " + str(e))
+           
+            try:
+                try:
+                                stock_data = requests.get(stock_url,
+                                                          headers=self.headers,
+                                                          timeout=10)
+                                if stock_data.status_code == 200 or stock_data.status_code == 404:
+                                    self.stock = stock_data.json()
+                                elif stock_data.status_code == 403 :
+                                    self.log( f"[{self.pid}] | Blocked getting product stock")
+                                    time.sleep(random.uniform(5, 15))
+                except Exception as e:
+                    self.log(f"[{self.pid}] | Error getting product stock : " + str(e)) 
+                    
+                if 'availability_status' in self.stock:
+                    status = self.stock['availability_status']
+                    self.title = data["name"]
+                    self.price = data["pricing_information"]["currentPrice"]
+                    self.image = data["view_list"][0]["image_url"]
+                    self.status = status
+                    altered_sizes = []
+                    available_sizes = []
+                    if 'variation_list' in self.stock:
+                        for new_size in self.stock['variation_list']:
+
+                            size_exists = False
+                            for existing_size in self.sizes:
+                                if new_size['size'] == existing_size['size']:
+                                    size_exists = True
+
+                                    if new_size['availability'] != existing_size[
+                                            'availability'] and new_size[
+                                                'availability_status'] == "IN_STOCK":
+                                        altered_sizes.append(new_size)
+                                    else:
+                                        available_sizes.append(new_size)
+                            if not size_exists:
+                                altered_sizes.append(new_size)
+
+                        self.sizes = self.stock['variation_list']
+
+                    if status != self.latest_status or len(
+                            altered_sizes) > 0:
+                        self.latest_status = status
+                        if self.count > 0:
+                            self.log("Detected status updated to %s" %
+                                     self.latest_status)
+                            self.send_to_discord(available_sizes)
+                        else:
+                            self.log("Loaded initial status as %s" %
+                                     self.latest_status)
+
+                    else:
+                        self.log("No update detected, current status is %s" %
+                                 self.latest_status)
+                else:
+                    if 'not found' in str(self.stock) :
+                        self.log("Product not loaded")
+                    else:
+                        self.log("No updates detected")
+            except Exception as e:
+                self.log("Error exporting data or sending notification: " + str(e))
+
+            self.count += 1
+            time.sleep(self.refresh_time)
+
+    def send_to_discord(self, altered_sizes):
+        print("[BACKEND] Sending webhook...")
+
+        stockx = f"https://stockx.com/search?s={self.pid}"
+        klekt = f"https://www.klekt.com/brands?search={self.pid}"
+        goat = f"https://www.goat.com/sneakers?query={self.pid}"
+        laced = f"https://www.laced.com/search?search%5Bterm%5D={self.pid}"
+
+        url = self.get_wishlist_url()
+
+        webhook = "your_webhook_here"
+        logo = "https://cdn.discordapp.com/attachments/1069383412869238914/1135691570734190592/Prime_Notify.png?ex=65e642b2&is=65d3cdb2&hm=e06e3b78f485905d56a9aa13d3d1e069d76699160cfe6770bb2ac1cbda54158a&"
+
+        embee = []
+
+        embee.append({"name": "SKU", "value": self.pid, "inline": True})
+        embee.append({"name": "Region", "value": ":flag_eu:", "inline": True})
+        embee.append({
+            "name": "Available",
+            "value": self.status,
+            "inline": True
+        })
+        embee.append({
+            "name": "Price",
+            "value": str(self.price) + "€",
+            "inline": False
+        })
+
+        sizes = ""
+        for size in altered_sizes:
+            if size["availability"] < 15:
+                if size["availability"] == 0 : 
+                    continue 
+                sizes += f'Size {size["size"]} - [{size["availability"]}] \n'
+            else:
+                sizes += f'Size {size["size"]} - [15+] \n'
+        embee.append({
+            "name": 'Available Sizes',
+            "value": sizes,
+            "inline": True
+        })
+
+        embee.append({
+            "name": "Resell Links",
+            "value":
+            f"[StockX]({stockx}) - [Klekt]({klekt}) - [Goat]({goat}) - [Laced]({laced})",
+            "inline": False,
+        })
+
+        current_time = datetime.now().strftime("%I:%M %p")
+
+        data_json = {
+            "username":
+            "Adidas Monitor ",
+            "avatar_url":
+            logo_prime,
+            "embeds": [{
+                "title": self.title,
+                "url": url,
+                "color": 15191305,
+                "author": {
+                    "name":
+                    "www.adidas.com",
+                    "url":
+                    f"https://www.adidas.{self.region}/",
+                    "icon_url":
+                    "https://cdn.logojoy.com/wp-content/uploads/20231013154327/Adidas-logo-1991-1-600x319.png"
+                },
+                "thumbnail": {
+                    "url": self.image
+                },
+                "fields": embee,
+                "footer": {
+                    "text": "Powered by aggelos" +
+                    " • Today at " + current_time,
+                    "icon_url": logo_prime,
+                },
+            }],
+        }
+
+        response = requests.post(webhook, json=data_json)
+        try:
+            response.raise_for_status()
+            print("[BACKEND] Webhook sent!")
+
+        except requests.exceptions.HTTPError as err:
+            print(err)
+        except:
+            print("[BACKEND] Webhook failed!")
